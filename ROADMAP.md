@@ -1,0 +1,80 @@
+# Roadmap
+
+## M0 — Fundação
+
+- [x] workspace Rust;
+- [x] CLI;
+- [x] inspeção ZIP/APK;
+- [x] reconhecimento inicial de AXML;
+- [x] leitura do cabeçalho DEX;
+- [x] inventário de bibliotecas nativas;
+- [ ] corpus legal de APKs de teste;
+- [ ] fuzzing inicial.
+
+## M1 — Manifesto e recursos
+
+- [ ] parser completo de Android Binary XML;
+- [ ] string pool UTF-8/UTF-16;
+- [ ] namespaces e atributos tipados;
+- [ ] package name, SDK, permissões e componentes;
+- [ ] parser mínimo de `resources.arsc`;
+- [ ] comando `winedroid manifest`.
+
+## M2 — Loader DEX
+
+- [ ] map list;
+- [ ] string/type/proto/field/method/class tables;
+- [ ] encoded values;
+- [ ] class data;
+- [ ] code items;
+- [ ] disassembler;
+- [ ] comando `winedroid dex dump`.
+
+## M3 — Execução DEX mínima
+
+- [ ] frames e registradores;
+- [ ] constantes e movimentos;
+- [ ] aritmética;
+- [ ] branches;
+- [ ] invoke/return;
+- [ ] objetos e arrays;
+- [ ] exceções;
+- [ ] executar um APK de teste sem `android.*`.
+
+## M4 — Primeiro aplicativo visual
+
+- [ ] `android.util.Log`;
+- [ ] `Application`;
+- [ ] `Activity`;
+- [ ] `Intent`;
+- [ ] `Looper` e fila de mensagens;
+- [ ] janela Wayland;
+- [ ] View/TextView/Button mínimos;
+- [ ] entrada de teclado e ponteiro.
+
+## M5 — JNI e Bionic
+
+- [ ] carregador ELF Android x86_64;
+- [ ] JNI Invocation/Native interfaces;
+- [ ] wrappers libc/pthread/dl;
+- [ ] OpenGL ES;
+- [ ] primeiro APK com `.so`.
+
+## M6 — Integração desktop
+
+- [ ] instalação lógica;
+- [ ] arquivos `.desktop`;
+- [ ] ícones;
+- [ ] notificações;
+- [ ] clipboard;
+- [ ] seletor de arquivos via portal;
+- [ ] áudio PipeWire.
+
+## M7 — Compatibilidade e desempenho
+
+- [ ] suíte de regressão;
+- [ ] cache de resolução;
+- [ ] compilação de métodos quentes;
+- [ ] multiprocessos;
+- [ ] Binder compatível;
+- [ ] sandbox por aplicativo.
