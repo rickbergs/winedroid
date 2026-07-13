@@ -86,3 +86,11 @@
 - [x] Extração de corpos de métodos de DEX e APK
 - [ ] Objetos, chamadas entre métodos e exceções
 - [ ] Reimplementação progressiva de `java.*` e `android.*`
+
+## Ciclo de vida ligado
+
+- [x] Quatro métodos reais do SukiSU compilados separadamente
+- [x] Um único ELF para Application e MainActivity
+- [x] Handles e campos compartilhados entre etapas do ciclo
+- [ ] Compilar recursivamente a árvore de chamadas internas
+- [ ] Primeira janela Linux para uma Activity
