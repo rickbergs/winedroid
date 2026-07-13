@@ -14,7 +14,7 @@ use crate::{
 };
 
 const MANIFEST_SAMPLE_LIMIT: u64 = 1024 * 1024;
-const DEX_HEADER_SAMPLE_LIMIT: u64 = 0x70;
+const MAX_DEX_FILE_SIZE: u64 = 256 * 1024 * 1024;
 
 pub fn inspect_apk(path: impl AsRef<Path>) -> Result<ApkReport> {
     let path = path.as_ref();
@@ -67,12 +67,20 @@ pub fn inspect_apk(path: impl AsRef<Path>) -> Result<ApkReport> {
                 }
             }
             EntryKind::Dex => {
-                let bytes = read_limited(&mut entry, DEX_HEADER_SAMPLE_LIMIT)
-                    .with_context(|| format!("falha ao ler o cabeçalho de {name}"))?;
+                if uncompressed_size > MAX_DEX_FILE_SIZE {
+                    report.warnings.push(format!(
+                        "{name}: DEX de {uncompressed_size} bytes excede o limite de segurança de {MAX_DEX_FILE_SIZE} bytes"
+                    ));
+                } else {
+                    let mut bytes = Vec::new();
+                    entry
+                        .read_to_end(&mut bytes)
+                        .with_context(|| format!("falha ao ler o DEX completo {name}"))?;
 
-                match inspect_dex(&name, &bytes, uncompressed_size) {
-                    Ok(dex) => report.dex_files.push(dex),
-                    Err(error) => report.warnings.push(error),
+                    match inspect_dex(&name, &bytes, uncompressed_size) {
+                        Ok(dex) => report.dex_files.push(dex),
+                        Err(error) => report.warnings.push(error),
+                    }
                 }
             }
             EntryKind::NativeLibrary => {
@@ -101,6 +109,13 @@ pub fn inspect_apk(path: impl AsRef<Path>) -> Result<ApkReport> {
             compression,
         });
     }
+
+    report.dex_files.sort_by_key(|dex| dex_sort_key(&dex.path));
+    report.native_libraries.sort_by(|left, right| {
+        left.abi
+            .cmp(&right.abi)
+            .then_with(|| left.soname.cmp(&right.soname))
+    });
 
     if report.manifest.is_none() {
         report
@@ -165,6 +180,17 @@ fn is_root_dex(name: &str) -> bool {
         })
 }
 
+fn dex_sort_key(name: &str) -> u32 {
+    if name == "classes.dex" {
+        return 1;
+    }
+
+    name.strip_prefix("classes")
+        .and_then(|rest| rest.strip_suffix(".dex"))
+        .and_then(|number| number.parse::<u32>().ok())
+        .unwrap_or(u32::MAX)
+}
+
 fn is_v1_signature_entry(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
 
@@ -208,6 +234,12 @@ mod tests {
         assert!(is_root_dex("classes999.dex"));
         assert!(!is_root_dex("classesx.dex"));
         assert!(!is_root_dex("assets/classes.dex"));
+    }
+
+    #[test]
+    fn sorts_multidex_numerically() {
+        assert!(dex_sort_key("classes.dex") < dex_sort_key("classes2.dex"));
+        assert!(dex_sort_key("classes2.dex") < dex_sort_key("classes10.dex"));
     }
 
     #[test]

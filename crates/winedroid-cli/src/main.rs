@@ -102,12 +102,33 @@ fn print_human_report(report: &ApkReport) {
     println!("DEX: {}", report.dex_files.len());
     for dex in &report.dex_files {
         println!(
-            "  {}: versão {}, {} classes, {} métodos, {} strings",
-            dex.path, dex.version, dex.class_defs, dex.method_ids, dex.string_ids
+            "  {}: v{}, {} classes, {} métodos, {} campos, {} protótipos, {} strings",
+            dex.path,
+            dex.version,
+            dex.parsed_classes,
+            dex.parsed_methods,
+            dex.parsed_fields,
+            dex.parsed_protos,
+            dex.parsed_strings
         );
 
         for warning in &dex.warnings {
             println!("    aviso: {warning}");
+        }
+    }
+
+    if let Some(first_dex) = report.dex_files.first() {
+        if !first_dex.class_samples.is_empty() {
+            println!("Amostra de classes de {}:", first_dex.path);
+            for class in &first_dex.class_samples {
+                println!("  {class}");
+            }
+        }
+        if !first_dex.method_samples.is_empty() {
+            println!("Amostra de métodos de {}:", first_dex.path);
+            for method in &first_dex.method_samples {
+                println!("  {method}");
+            }
         }
     }
 
