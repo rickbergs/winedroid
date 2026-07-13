@@ -284,13 +284,13 @@ impl BootstrapCompiler {
         source.push_str(
             "typedef struct { int32_t object; uint32_t field; wd_value value; } wd_ifield;\n\n",
         );
-        source.push_str("static int32_t wd_next_object = 1;\n");
+        source.push_str("static __attribute__((unused)) int32_t wd_next_object = 1;\n");
         source.push_str("static __attribute__((unused)) wd_value wd_last_result = 0;\n");
         source.push_str("static __attribute__((unused)) wd_value wd_static_fields[");
         source.push_str(&field_count.to_string());
         source.push_str("] = {0};\n");
-        source.push_str("static wd_ifield wd_instance_fields[4096];\n");
-        source.push_str("static size_t wd_instance_field_count = 0;\n\n");
+        source.push_str("static __attribute__((unused)) wd_ifield wd_instance_fields[4096];\n");
+        source.push_str("static __attribute__((unused)) size_t wd_instance_field_count = 0;\n\n");
 
         emit_string_table(
             &mut source,
@@ -318,7 +318,7 @@ impl BootstrapCompiler {
         );
 
         source.push_str(
-            "static int32_t wd_new_object(uint32_t type_index) {\n\
+            "static __attribute__((unused)) int32_t wd_new_object(uint32_t type_index) {\n\
              \tint32_t handle = wd_next_object++;\n\
              \tconst char *name = type_index < (sizeof(wd_type_names) / sizeof(wd_type_names[0])) ? wd_type_names[type_index] : \"<unknown-type>\";\n\
              \tfprintf(stderr, \"[WineDroid] new-instance #%d %s\\n\", handle, name);\n\
@@ -326,7 +326,7 @@ impl BootstrapCompiler {
              }\n\n",
         );
         source.push_str(
-            "static wd_value wd_iget(int32_t object, uint32_t field) {\n\
+            "static __attribute__((unused)) wd_value wd_iget(int32_t object, uint32_t field) {\n\
              \tfor (size_t i = wd_instance_field_count; i > 0; --i) {\n\
              \t\twd_ifield *entry = &wd_instance_fields[i - 1];\n\
              \t\tif (entry->object == object && entry->field == field) { return entry->value; }\n\
@@ -335,7 +335,7 @@ impl BootstrapCompiler {
              }\n\n",
         );
         source.push_str(
-            "static void wd_iput(int32_t object, uint32_t field, wd_value value) {\n\
+            "static __attribute__((unused)) void wd_iput(int32_t object, uint32_t field, wd_value value) {\n\
              \tfor (size_t i = wd_instance_field_count; i > 0; --i) {\n\
              \t\twd_ifield *entry = &wd_instance_fields[i - 1];\n\
              \t\tif (entry->object == object && entry->field == field) { entry->value = value; return; }\n\
@@ -1183,7 +1183,8 @@ fn escape_c(value: &str) -> String {
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),
             '\t' => escaped.push_str("\\t"),
-            other if other.is_control() => escaped.push('?'),
+            '?' => escaped.push_str("\\077"),
+            other if other.is_control() => escaped.push_str("\\077"),
             other => escaped.push(other),
         }
     }
@@ -1343,5 +1344,20 @@ mod tests {
         assert!(source.contains("wd_new_object"));
         assert!(source.contains("wd_iput"));
         assert!(source.contains("wd_iget"));
+    }
+
+    #[test]
+    fn escapes_c_trigraph_sequences() {
+        assert_eq!(escape_c("??=??/??'"), "\\077\\077=\\077\\077/\\077\\077'");
+        assert!(!escape_c("????").contains("??"));
+    }
+    #[test]
+    fn marks_optional_runtime_helpers_as_unused() {
+        let source = BootstrapCompiler::default()
+            .emit_c(&BootstrapMethod::demo())
+            .unwrap();
+        assert!(source.contains("static __attribute__((unused)) wd_value wd_iget"));
+        assert!(source.contains("static __attribute__((unused)) void wd_iput"));
+        assert!(source.contains("static __attribute__((unused)) int32_t wd_new_object"));
     }
 }
