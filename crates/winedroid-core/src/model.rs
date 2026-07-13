@@ -52,6 +52,16 @@ pub struct ManifestInfo {
     pub header_size: Option<u16>,
     pub declared_size: Option<u32>,
     pub bytes_sampled: usize,
+    pub package_name: Option<String>,
+    pub version_code: Option<String>,
+    pub version_name: Option<String>,
+    pub min_sdk: Option<String>,
+    pub target_sdk: Option<String>,
+    pub application_name: Option<String>,
+    pub launcher_activity: Option<String>,
+    pub permissions: Vec<String>,
+    pub activities: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

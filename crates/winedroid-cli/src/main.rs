@@ -68,6 +68,33 @@ fn print_human_report(report: &ApkReport) {
             if let Some(size) = manifest.declared_size {
                 println!("  tamanho declarado: {size} bytes");
             }
+            if let Some(package) = &manifest.package_name {
+                println!("  pacote: {package}");
+            }
+            if let Some(version_code) = &manifest.version_code {
+                println!("  versionCode: {version_code}");
+            }
+            if let Some(version_name) = &manifest.version_name {
+                println!("  versionName: {version_name}");
+            }
+            if manifest.min_sdk.is_some() || manifest.target_sdk.is_some() {
+                println!(
+                    "  SDK: min={} target={}",
+                    manifest.min_sdk.as_deref().unwrap_or("?"),
+                    manifest.target_sdk.as_deref().unwrap_or("?")
+                );
+            }
+            if let Some(application) = &manifest.application_name {
+                println!("  Application: {application}");
+            }
+            if let Some(launcher) = &manifest.launcher_activity {
+                println!("  launcher: {launcher}");
+            }
+            println!("  activities: {}", manifest.activities.len());
+            println!("  permissions: {}", manifest.permissions.len());
+            for warning in &manifest.warnings {
+                println!("  aviso AXML: {warning}");
+            }
         }
         None => println!("Manifesto: ausente"),
     }
