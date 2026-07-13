@@ -41,6 +41,10 @@ enum Commands {
         #[arg(long)]
         emit_c: Option<PathBuf>,
         #[arg(long)]
+        default_static_int: Option<i32>,
+        #[arg(long = "static-field", value_name = "DESCRIPTOR=VALUE")]
+        static_fields: Vec<String>,
+        #[arg(long)]
         run: bool,
     },
     /// Procura e compila um método zero-argumento dentro de um APK multidex.
@@ -52,6 +56,10 @@ enum Commands {
         output: PathBuf,
         #[arg(long)]
         emit_c: Option<PathBuf>,
+        #[arg(long)]
+        default_static_int: Option<i32>,
+        #[arg(long = "static-field", value_name = "DESCRIPTOR=VALUE")]
+        static_fields: Vec<String>,
         #[arg(long)]
         run: bool,
     },
@@ -86,6 +94,8 @@ fn main() -> Result<()> {
             method,
             output,
             emit_c,
+            default_static_int,
+            static_fields,
             run,
         } => {
             let bytes = std::fs::read(&dex)
@@ -94,19 +104,23 @@ fn main() -> Result<()> {
             let body = find_method_in_dex(&logical_name, &bytes, &method)
                 .map_err(anyhow::Error::msg)?
                 .with_context(|| format!("método não encontrado: {method}"))?;
-            compile_and_optionally_run(&compiler, &body.into(), &output, emit_c.as_deref(), run)?;
+            let program = prepare_program(body.into(), default_static_int, &static_fields)?;
+            compile_and_optionally_run(&compiler, &program, &output, emit_c.as_deref(), run)?;
         }
         Commands::CompileApk {
             apk,
             method,
             output,
             emit_c,
+            default_static_int,
+            static_fields,
             run,
         } => {
             let body = find_method_in_apk(&apk, &method)
                 .map_err(anyhow::Error::msg)?
                 .with_context(|| format!("método não encontrado no APK: {method}"))?;
-            compile_and_optionally_run(&compiler, &body.into(), &output, emit_c.as_deref(), run)?;
+            let program = prepare_program(body.into(), default_static_int, &static_fields)?;
+            compile_and_optionally_run(&compiler, &program, &output, emit_c.as_deref(), run)?;
         }
         Commands::ScanApk { apk, limit } => {
             let methods = scan_apk_methods(&apk, limit).map_err(anyhow::Error::msg)?;
@@ -129,6 +143,30 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn prepare_program(
+    mut program: DalvikProgram,
+    default_static_int: Option<i32>,
+    static_fields: &[String],
+) -> Result<DalvikProgram> {
+    if let Some(value) = default_static_int {
+        program.set_all_static_i32(value);
+    }
+
+    for override_value in static_fields {
+        let (descriptor, raw_value) = override_value.rsplit_once('=').with_context(|| {
+            format!("override inválido {override_value:?}; use DESCRIPTOR=VALOR")
+        })?;
+        let value = raw_value
+            .parse::<i32>()
+            .with_context(|| format!("valor inválido em {override_value:?}: {raw_value}"))?;
+        if !program.set_static_i32(descriptor, value) {
+            bail!("campo estático não encontrado no DEX: {descriptor}");
+        }
+    }
+
+    Ok(program)
+}
+
 fn compile_and_optionally_run(
     compiler: &AotCompiler,
     program: &DalvikProgram,
@@ -143,6 +181,12 @@ fn compile_and_optionally_run(
     println!("Método: {}", program.descriptor);
     println!("ELF nativo: {}", artifact.executable.display());
     println!("Backend: Dalvik → C → Clang AOT → ELF");
+    for field in &artifact.referenced_static_fields {
+        println!(
+            "Campo estático: {} = {}",
+            field.descriptor, field.initial_i32
+        );
+    }
 
     if run {
         let result = Command::new(&artifact.executable)

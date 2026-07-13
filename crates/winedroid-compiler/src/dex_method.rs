@@ -1,9 +1,16 @@
-use std::{fs::File, io::Read, path::Path};
+use std::{fs::File, io::Read, path::Path, sync::Arc};
 
 use winedroid_core::{DexIndex, parse_dex_index};
 use zip::ZipArchive;
 
 const MAX_DEX_SIZE: u64 = 256 * 1024 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DexFieldReference {
+    pub index: u16,
+    pub descriptor: String,
+    pub field_type: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DexMethodBody {
@@ -15,6 +22,7 @@ pub struct DexMethodBody {
     pub outs_size: u16,
     pub tries_size: u16,
     pub instructions: Vec<u16>,
+    pub field_table: Arc<[DexFieldReference]>,
 }
 
 pub fn find_method_in_dex(
@@ -130,6 +138,8 @@ fn walk_methods<F>(
 where
     F: FnMut(DexMethodBody) -> bool,
 {
+    let field_table = build_field_table(index)?;
+
     for class in &index.classes {
         if class.class_data_offset == 0 {
             continue;
@@ -152,6 +162,7 @@ where
             &mut cursor,
             direct_methods,
             index,
+            &field_table,
             &mut visitor,
         )? {
             return Ok(());
@@ -163,6 +174,7 @@ where
             &mut cursor,
             virtual_methods,
             index,
+            &field_table,
             &mut visitor,
         )? {
             return Ok(());
@@ -186,6 +198,7 @@ fn walk_encoded_method_list<F>(
     cursor: &mut usize,
     count: u32,
     index: &DexIndex,
+    field_table: &Arc<[DexFieldReference]>,
     visitor: &mut F,
 ) -> Result<bool, String>
 where
@@ -220,6 +233,7 @@ where
             code_offset,
             method.descriptor.clone(),
             access_flags,
+            Arc::clone(field_table),
         )?;
 
         if !visitor(body) {
@@ -236,6 +250,7 @@ fn parse_code_item(
     code_offset: u32,
     descriptor: String,
     access_flags: u32,
+    field_table: Arc<[DexFieldReference]>,
 ) -> Result<DexMethodBody, String> {
     let offset = usize::try_from(code_offset)
         .map_err(|_| format!("{dex_path}: code_off não cabe em usize"))?;
@@ -275,7 +290,24 @@ fn parse_code_item(
         outs_size,
         tries_size,
         instructions,
+        field_table,
     })
+}
+
+fn build_field_table(index: &DexIndex) -> Result<Arc<[DexFieldReference]>, String> {
+    let mut fields = Vec::with_capacity(index.fields.len());
+
+    for (position, field) in index.fields.iter().enumerate() {
+        let field_index = u16::try_from(position)
+            .map_err(|_| format!("field_id #{position} excede o índice Dalvik de 16 bits"))?;
+        fields.push(DexFieldReference {
+            index: field_index,
+            descriptor: field.descriptor.clone(),
+            field_type: field.field_type.clone(),
+        });
+    }
+
+    Ok(Arc::from(fields))
 }
 
 fn read_zip_entry(archive: &mut ZipArchive<File>, name: &str) -> Result<Vec<u8>, String> {
@@ -390,6 +422,28 @@ mod tests {
         ];
         names.sort_by_key(|name| dex_number(name));
         assert_eq!(names, ["classes.dex", "classes2.dex", "classes10.dex"]);
+    }
+
+    #[test]
+    fn builds_resolved_field_table() {
+        let index = DexIndex {
+            strings: Vec::new(),
+            types: Vec::new(),
+            protos: Vec::new(),
+            fields: vec![winedroid_core::DexField {
+                class: "LTest;".to_owned(),
+                field_type: "I".to_owned(),
+                name: "counter".to_owned(),
+                descriptor: "LTest;->counter:I".to_owned(),
+            }],
+            methods: Vec::new(),
+            classes: Vec::new(),
+        };
+
+        let fields = build_field_table(&index).unwrap();
+        assert_eq!(fields[0].index, 0);
+        assert_eq!(fields[0].descriptor, "LTest;->counter:I");
+        assert_eq!(fields[0].field_type, "I");
     }
 
     #[test]
