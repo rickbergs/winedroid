@@ -94,3 +94,12 @@
 - [x] Handles e campos compartilhados entre etapas do ciclo
 - [ ] Compilar recursivamente a árvore de chamadas internas
 - [ ] Primeira janela Linux para uma Activity
+
+## Linkador recursivo seguro
+
+- [x] Percorrer referências `invoke-*` a partir dos quatro métodos raiz
+- [x] Internalizar métodos compatíveis no mesmo ELF
+- [x] Dispatch por `method_id` original do DEX
+- [x] Fallback para stubs externos
+- [ ] ABI genérica para qualquer quantidade de argumentos
+- [ ] Dispatch virtual baseado no tipo real do objeto

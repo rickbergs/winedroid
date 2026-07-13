@@ -24,3 +24,7 @@ zip.workspace = true
 [[bin]]
 name = "winedroid-sukisu-link"
 path = "src/sukisu_link_main.rs"
+
+[[bin]]
+name = "winedroid-sukisu-recursive"
+path = "src/recursive_main.rs"
