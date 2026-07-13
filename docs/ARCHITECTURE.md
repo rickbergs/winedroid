@@ -123,3 +123,18 @@ Diretório sugerido:
 - processo sandbox por aplicativo;
 - nenhuma permissão de host implícita;
 - fuzzing dos parsers antes do runtime executar APKs públicos.
+
+## Pipeline nativo
+
+```text
+APK/DEX
+  → extração de class_data_item e code_item
+  → lowering de instruções Dalvik
+  → código C intermediário verificável
+  → Clang AOT
+  → executável ELF x86_64
+  → kernel Linux / CPU
+```
+
+Esse pipeline não inicia Android, não virtualiza hardware e não interpreta
+opcodes durante a execução do programa final.

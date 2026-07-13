@@ -2,6 +2,7 @@
 members = [
     "crates/winedroid-core",
     "crates/winedroid-cli",
+    "crates/winedroid-compiler",
 ]
 resolver = "3"
 

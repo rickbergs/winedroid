@@ -78,3 +78,11 @@
 - [ ] multiprocessos;
 - [ ] Binder compatível;
 - [ ] sandbox por aplicativo.
+
+## Compilação nativa AOT
+
+- [x] Backend inicial Dalvik → C → ELF x86_64
+- [x] Execução direta do ELF pelo kernel Linux
+- [x] Extração de corpos de métodos de DEX e APK
+- [ ] Objetos, chamadas entre métodos e exceções
+- [ ] Reimplementação progressiva de `java.*` e `android.*`

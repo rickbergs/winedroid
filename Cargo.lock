@@ -337,6 +337,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "winedroid-compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "winedroid-core",
+ "zip",
+]
+
+[[package]]
 name = "winedroid-core"
 version = "0.1.0"
 dependencies = [
