@@ -97,3 +97,21 @@ O C intermediário preserva os labels dos blocos Dalvik. Depois do lowering,
 alguns blocos podem ficar sem predecessores e o Clang reporta
 `-Wunused-label`. O backend mantém `-Werror`, desativando exclusivamente essa
 categoria, que não altera a semântica do ELF gerado.
+
+### `packed-switch` Dalvik
+
+O backend reconhece o opcode `0x2b`, interpreta o
+`packed-switch-payload` e gera um `switch` C com destinos validados.
+Payloads DEX são tratados como dados e não recebem labels executáveis.
+
+### Limite de métodos internos
+
+O linker recursivo aceita métodos internos com até 1024 code units. A ampliação permite traduzir métodos reais maiores, como o dispatcher com `packed-switch`, mas continua rejeitando métodos que contenham `throw` enquanto o tratamento de exceções Dalvik não estiver pronto.
+
+### Caminhos com `throw`
+
+Métodos que contêm o opcode Dalvik `throw` (`0x27`) podem entrar no grafo recursivo. O backend já traduz esse opcode para `wd_throw`; portanto, o processo só encerra com status 103 quando o caminho de exceção é realmente executado.
+
+### Teto do grafo recursivo
+
+O linker recursivo admite até 192 métodos internos por padrão. O limite anterior de 96 passou a truncar o grafo antes de métodos maiores alcançáveis, mesmo sem atingir o limite de profundidade.

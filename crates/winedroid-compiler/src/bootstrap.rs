@@ -431,7 +431,15 @@ impl BootstrapCompiler {
 
         let result = Command::new(&self.clang)
             .args([
-                "-std=c11", "-O2", "-fPIE", "-pie", "-Wall", "-Wextra", "-Werror", "-o",
+                "-std=c11",
+                "-O2",
+                "-fPIE",
+                "-pie",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-label",
+                "-o",
             ])
             .arg(output)
             .arg(&temporary)
@@ -807,6 +815,20 @@ fn lower_instruction(
             let target = branch_target(pc, offset, starts)?;
             Ok(format!("\tgoto L{target};\n"))
         }
+        0x2b => {
+            let source = usize::from(unit >> 8);
+            validate_register(pc, source, register_count)?;
+            let next = next.ok_or(BootstrapError::Unsupported { pc, opcode })?;
+            let cases = packed_switch_cases(method, pc, starts)?;
+            let mut statement = format!("\tswitch ((int32_t)v[{source}]) {{\n");
+
+            for (key, target) in cases {
+                statement.push_str(&format!("\t\tcase INT32_C({key}): goto L{target};\n"));
+            }
+
+            statement.push_str(&format!("\t\tdefault: goto L{next};\n\t}}\n"));
+            Ok(statement)
+        }
         0x2d..=0x31 => {
             let destination = usize::from(unit >> 8);
             let operands = read_unit(&method.instructions, pc + 1, pc, opcode)?;
@@ -1040,6 +1062,13 @@ fn instruction_starts(instructions: &[u16]) -> Result<Vec<usize>, BootstrapError
     let mut pc = 0_usize;
 
     while pc < instructions.len() {
+        if let Some(width) = payload_width(instructions, pc)? {
+            pc = pc
+                .checked_add(width)
+                .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+            continue;
+        }
+
         starts.push(pc);
         let unit = instructions[pc];
         let opcode = (unit & 0xff) as u8;
@@ -1055,6 +1084,48 @@ fn instruction_starts(instructions: &[u16]) -> Result<Vec<usize>, BootstrapError
     }
 
     Ok(starts)
+}
+
+fn payload_width(instructions: &[u16], pc: usize) -> Result<Option<usize>, BootstrapError> {
+    let Some(&ident) = instructions.get(pc) else {
+        return Ok(None);
+    };
+
+    let width = match ident {
+        0x0100 => {
+            let size = usize::from(read_unit(instructions, pc + 1, pc, 0)?);
+            size.checked_mul(2)
+                .and_then(|targets| targets.checked_add(4))
+        }
+        0x0200 => {
+            let size = usize::from(read_unit(instructions, pc + 1, pc, 0)?);
+            size.checked_mul(4)
+                .and_then(|entries| entries.checked_add(2))
+        }
+        0x0300 => {
+            let element_width = usize::from(read_unit(instructions, pc + 1, pc, 0)?);
+            let element_count = usize::try_from(read_u32(instructions, pc + 2, pc, 0)?)
+                .map_err(|_| BootstrapError::Truncated { pc, opcode: 0 })?;
+            let byte_count = element_width
+                .checked_mul(element_count)
+                .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+            byte_count
+                .checked_add(1)
+                .and_then(|bytes| bytes.checked_div(2))
+                .and_then(|units| units.checked_add(4))
+        }
+        _ => return Ok(None),
+    }
+    .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+
+    let end = pc
+        .checked_add(width)
+        .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+    if end > instructions.len() {
+        return Err(BootstrapError::Truncated { pc, opcode: 0 });
+    }
+
+    Ok(Some(width))
 }
 
 fn instruction_width(opcode: u8, unit: u16) -> Option<usize> {
@@ -1100,6 +1171,8 @@ fn instruction_width(opcode: u8, unit: u16) -> Option<usize> {
         | 0x1b
         | 0x24..=0x26
         | 0x2a
+        | 0x2b
+        | 0x2c
         | 0x6e..=0x72
         | 0x74..=0x78 => Some(3),
         0x18 => Some(5),
@@ -1108,7 +1181,59 @@ fn instruction_width(opcode: u8, unit: u16) -> Option<usize> {
 }
 
 fn is_supported_opcode(opcode: u8, unit: u16) -> bool {
-    instruction_width(opcode, unit).is_some() && !matches!(opcode, 0x26 | 0x2b | 0x2c)
+    instruction_width(opcode, unit).is_some() && !matches!(opcode, 0x26 | 0x2c)
+}
+
+fn packed_switch_cases(
+    method: &BootstrapMethod,
+    pc: usize,
+    starts: &BTreeSet<usize>,
+) -> Result<Vec<(i32, usize)>, BootstrapError> {
+    let opcode = 0x2b;
+    let payload_offset = i64::from(read_i32(&method.instructions, pc + 1, pc, opcode)?);
+    let payload_target = i64::try_from(pc)
+        .ok()
+        .and_then(|value| value.checked_add(payload_offset))
+        .ok_or(BootstrapError::InvalidBranch {
+            pc,
+            target: payload_offset,
+        })?;
+    let payload_pc =
+        usize::try_from(payload_target).map_err(|_| BootstrapError::InvalidBranch {
+            pc,
+            target: payload_target,
+        })?;
+
+    if method.instructions.get(payload_pc).copied() != Some(0x0100) {
+        return Err(BootstrapError::InvalidBranch {
+            pc,
+            target: payload_target,
+        });
+    }
+
+    let size = usize::from(read_unit(&method.instructions, payload_pc + 1, pc, opcode)?);
+    let first_key = read_i32(&method.instructions, payload_pc + 2, pc, opcode)?;
+    let targets_start = payload_pc
+        .checked_add(4)
+        .ok_or(BootstrapError::Truncated { pc, opcode })?;
+    let mut cases = Vec::with_capacity(size);
+
+    for index in 0..size {
+        let key_delta = i32::try_from(index)
+            .map_err(|_| BootstrapError::Apk(format!("pc={pc}: packed-switch grande demais")))?;
+        let key = first_key.checked_add(key_delta).ok_or_else(|| {
+            BootstrapError::Apk(format!("pc={pc}: overflow nas chaves do packed-switch"))
+        })?;
+        let target_unit = index
+            .checked_mul(2)
+            .and_then(|value| targets_start.checked_add(value))
+            .ok_or(BootstrapError::Truncated { pc, opcode })?;
+        let target_offset = i64::from(read_i32(&method.instructions, target_unit, pc, opcode)?);
+        let target = branch_target(pc, target_offset, starts)?;
+        cases.push((key, target));
+    }
+
+    Ok(cases)
 }
 
 fn branch_target(

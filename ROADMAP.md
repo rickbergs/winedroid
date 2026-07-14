@@ -112,3 +112,5 @@
 - [x] Permitir instâncias e construtores com múltiplos argumentos
 - [x] Elevar limite prudencial para 512 code units
 - [ ] Implementar exceções e aceitar métodos com `throw`
+
+- [x] Traduzir `packed-switch` (`0x2b`) e seu payload para controle de fluxo C.

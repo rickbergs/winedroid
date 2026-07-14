@@ -381,8 +381,7 @@ fn is_known_external_namespace(descriptor: &str) -> bool {
 }
 
 fn is_safe_recursive_candidate(method: &BootstrapMethod) -> bool {
-    method.instructions.len() <= 512
-        && !method.instructions.iter().any(|unit| (unit & 0xff) == 0x27)
+    method.instructions.len() <= 1024
 }
 
 fn supports_current_argument_abi(method: &BootstrapMethod) -> bool {
@@ -500,5 +499,24 @@ mod tests {
         assert!(source.contains("case 4:"));
         assert!(source.contains("wd_invoke_external"));
         assert!(source.contains("recursive lifecycle completed"));
+    }
+}
+
+#[cfg(test)]
+mod recursive_safety_tests {
+    use super::*;
+
+    #[test]
+    fn recursive_candidates_may_contain_throw() {
+        let mut method = BootstrapMethod::demo();
+        method.instructions = vec![0x0027];
+        assert!(is_safe_recursive_candidate(&method));
+    }
+
+    #[test]
+    fn recursive_candidates_still_obey_size_limit() {
+        let mut method = BootstrapMethod::demo();
+        method.instructions = vec![0x0000; 1025];
+        assert!(!is_safe_recursive_candidate(&method));
     }
 }

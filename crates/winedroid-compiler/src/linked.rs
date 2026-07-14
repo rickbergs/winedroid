@@ -478,6 +478,13 @@ fn field_descriptors_in_compact_order(
     let mut pc = 0;
 
     while pc < method.instructions.len() {
+        if let Some(width) = payload_width(&method.instructions, pc)? {
+            pc = pc
+                .checked_add(width)
+                .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+            continue;
+        }
+
         let unit = method.instructions[pc];
         let opcode = (unit & 0xff) as u8;
         let width =
@@ -490,7 +497,6 @@ fn field_descriptors_in_compact_order(
                     .get(pc + 1)
                     .ok_or(BootstrapError::Truncated { pc, opcode })?,
             );
-
             if seen.insert(field_index) {
                 let descriptor = method
                     .fields
@@ -512,6 +518,58 @@ fn field_descriptors_in_compact_order(
     }
 
     Ok(descriptors)
+}
+
+fn payload_width(instructions: &[u16], pc: usize) -> Result<Option<usize>, BootstrapError> {
+    let Some(&ident) = instructions.get(pc) else {
+        return Ok(None);
+    };
+
+    let width = match ident {
+        0x0100 => {
+            let size = usize::from(read_payload_unit(instructions, pc + 1, pc)?);
+            size.checked_mul(2)
+                .and_then(|targets| targets.checked_add(4))
+        }
+        0x0200 => {
+            let size = usize::from(read_payload_unit(instructions, pc + 1, pc)?);
+            size.checked_mul(4)
+                .and_then(|entries| entries.checked_add(2))
+        }
+        0x0300 => {
+            let element_width = usize::from(read_payload_unit(instructions, pc + 1, pc)?);
+            let low = u32::from(read_payload_unit(instructions, pc + 2, pc)?);
+            let high = u32::from(read_payload_unit(instructions, pc + 3, pc)?);
+            let element_count = usize::try_from(low | (high << 16))
+                .map_err(|_| BootstrapError::Truncated { pc, opcode: 0 })?;
+            let byte_count = element_width
+                .checked_mul(element_count)
+                .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+
+            byte_count
+                .checked_add(1)
+                .and_then(|bytes| bytes.checked_div(2))
+                .and_then(|units| units.checked_add(4))
+        }
+        _ => return Ok(None),
+    }
+    .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+
+    let end = pc
+        .checked_add(width)
+        .ok_or(BootstrapError::Truncated { pc, opcode: 0 })?;
+    if end > instructions.len() {
+        return Err(BootstrapError::Truncated { pc, opcode: 0 });
+    }
+
+    Ok(Some(width))
+}
+
+fn read_payload_unit(instructions: &[u16], index: usize, pc: usize) -> Result<u16, BootstrapError> {
+    instructions
+        .get(index)
+        .copied()
+        .ok_or(BootstrapError::Truncated { pc, opcode: 0 })
 }
 
 fn instruction_width(opcode: u8, unit: u16) -> Option<usize> {
@@ -557,6 +615,8 @@ fn instruction_width(opcode: u8, unit: u16) -> Option<usize> {
         | 0x1b
         | 0x24..=0x26
         | 0x2a
+        | 0x2b
+        | 0x2c
         | 0x6e..=0x72
         | 0x74..=0x78 => Some(3),
         0x18 => Some(5),
@@ -627,5 +687,29 @@ mod tests {
         assert!(source.contains("wd_instance_fields[4096]"));
         assert!(source.contains("wd_iput((int32_t)v[0], 0"));
         assert!(source.contains("wd_iget((int32_t)v[0], 0"));
+    }
+}
+
+#[cfg(test)]
+mod linked_payload_tests {
+    use super::*;
+
+    #[test]
+    fn field_scanner_skips_switch_payloads() {
+        let mut packed = BootstrapMethod::demo();
+        packed.instructions = vec![0x002b, 3, 0, 0x0100, 1, 0, 0, 3, 0];
+        assert!(
+            field_descriptors_in_compact_order(&packed)
+                .unwrap()
+                .is_empty()
+        );
+
+        let mut sparse = BootstrapMethod::demo();
+        sparse.instructions = vec![0x002c, 3, 0, 0x0200, 1, 7, 0, 3, 0];
+        assert!(
+            field_descriptors_in_compact_order(&sparse)
+                .unwrap()
+                .is_empty()
+        );
     }
 }

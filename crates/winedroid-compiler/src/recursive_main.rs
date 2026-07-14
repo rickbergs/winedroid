@@ -22,7 +22,7 @@ struct Cli {
     #[arg(long, default_value_t = 4)]
     max_depth: usize,
 
-    #[arg(long, default_value_t = 96)]
+    #[arg(long, default_value_t = 192)]
     max_methods: usize,
 
     #[arg(long)]
