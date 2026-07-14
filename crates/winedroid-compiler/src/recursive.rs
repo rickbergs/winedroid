@@ -335,7 +335,15 @@ impl RecursiveLifecycleCompiler {
         fs::write(&temporary, &c_source)?;
         let result = Command::new(&self.clang)
             .args([
-                "-std=c11", "-O2", "-fPIE", "-pie", "-Wall", "-Wextra", "-Werror", "-o",
+                "-std=c11",
+                "-O2",
+                "-fPIE",
+                "-pie",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-label",
+                "-o",
             ])
             .arg(output)
             .arg(&temporary)
@@ -373,15 +381,12 @@ fn is_known_external_namespace(descriptor: &str) -> bool {
 }
 
 fn is_safe_recursive_candidate(method: &BootstrapMethod) -> bool {
-    method.instructions.len() <= 96 && !method.instructions.iter().any(|unit| (unit & 0xff) == 0x27)
+    method.instructions.len() <= 512
+        && !method.instructions.iter().any(|unit| (unit & 0xff) == 0x27)
 }
 
 fn supports_current_argument_abi(method: &BootstrapMethod) -> bool {
-    if method.is_static() {
-        method.ins_size == 0
-    } else {
-        method.ins_size <= 2
-    }
+    method.ins_size <= method.registers_size
 }
 
 fn patch_internal_dispatch(
@@ -393,6 +398,7 @@ fn patch_internal_dispatch(
             "wd_invoke não encontrado no C ligado".to_owned(),
         ));
     }
+
     source = source.replacen(INVOKE_SIGNATURE, EXTERNAL_INVOKE_SIGNATURE, 1);
 
     let insertion = source
@@ -401,17 +407,17 @@ fn patch_internal_dispatch(
 
     let mut dispatch = String::new();
     dispatch.push_str("static __attribute__((unused)) uint32_t wd_recursive_depth = 0;\n");
+
     for index in 0..method_indices.len() {
         dispatch.push_str(&format!(
-            "static wd_value wd_linked_method_{index}(wd_value wd_this, wd_value wd_arg0);\n"
+            "static wd_value wd_linked_method_{index}(uint32_t argc, const wd_value *args);\n"
         ));
     }
+
     dispatch.push_str(
         "\nstatic __attribute__((unused)) wd_value wd_invoke(\n\
          \tuint32_t method_index, uint32_t argc, const wd_value *args) {\n\
          \twd_value result = 0;\n\
-         \twd_value arg0 = (args != NULL && argc > 0) ? args[0] : 0;\n\
-         \twd_value arg1 = (args != NULL && argc > 1) ? args[1] : 0;\n\
          \tif (wd_recursive_depth >= 128) {\n\
          \t\tfputs(\"WineDroid: recursive call depth exceeded\\n\", stderr);\n\
          \t\texit(105);\n\
@@ -422,7 +428,7 @@ fn patch_internal_dispatch(
 
     for (linked_index, method_index) in method_indices.iter().copied().enumerate() {
         dispatch.push_str(&format!(
-            "\t\tcase {method_index}: fprintf(stderr, \"[WineDroid] internal method_id={method_index}\\n\"); result = wd_linked_method_{linked_index}(arg0, arg1); break;\n"
+            "\t\tcase {method_index}: fprintf(stderr, \"[WineDroid] internal method_id={method_index} argc=%u\\n\", argc); result = wd_linked_method_{linked_index}(argc, args); break;\n"
         ));
     }
 
@@ -447,6 +453,7 @@ fn patch_internal_dispatch(
         "[WineDroid] linked SukiSU lifecycle complete",
         "[WineDroid] recursive SukiSU lifecycle complete",
     );
+
     Ok(source)
 }
 

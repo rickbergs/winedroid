@@ -103,3 +103,12 @@
 - [x] Fallback para stubs externos
 - [ ] ABI genérica para qualquer quantidade de argumentos
 - [ ] Dispatch virtual baseado no tipo real do objeto
+
+## ABI genérica
+
+- [x] Encaminhar `argc + args[]`
+- [x] Carregar todos os registradores de entrada Dalvik
+- [x] Permitir métodos estáticos com argumentos
+- [x] Permitir instâncias e construtores com múltiplos argumentos
+- [x] Elevar limite prudencial para 512 code units
+- [ ] Implementar exceções e aceitar métodos com `throw`

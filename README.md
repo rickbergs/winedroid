@@ -1,116 +1,62 @@
 # WineDroid
 
 **WineDroid** é uma camada experimental de compatibilidade para executar
-aplicativos Android no Linux sem iniciar uma distribuição Android completa,
-sem máquina virtual de sistema e sem contêiner Android.
+aplicativos Android no Linux sem iniciar Android completo, sem máquina virtual
+de sistema e sem contêiner Android.
 
-O projeto lê APK e DEX, compila bytecode Dalvik antecipadamente e produz
-executáveis Linux nativos. APIs Java e Android são substituídas
-progressivamente por implementações sobre interfaces do Linux.
+O projeto analisa APK e DEX, compila bytecode Dalvik antecipadamente e produz
+executáveis Linux nativos.
 
-> **Estado atual:** compilador AOT, runtime nativo e linkador recursivo em
-> desenvolvimento. Ainda não existe interface gráfica Android funcional.
+> **Estado atual:** compilador AOT, runtime nativo, ciclo de vida ligado,
+> linkador recursivo e ABI genérica. Ainda não existe interface gráfica Android
+> funcional.
 
 ## Estado comprovado
 
 O WineDroid já consegue:
 
-- analisar APK, Android Binary XML e multidex;
-- resolver strings, tipos, campos, protótipos, métodos e classes;
-- extrair `class_data_item` e `code_item`;
-- compilar um subconjunto amplo de instruções Dalvik;
-- produzir ELF PIE x86-64 com Clang;
+- analisar APK, Android Binary XML e DEX;
+- resolver strings, tipos, campos, métodos e classes;
+- extrair corpos reais de métodos;
+- compilar Dalvik para C e ELF PIE x86-64;
 - executar o resultado diretamente pelo kernel Linux;
-- representar objetos por handles;
-- compartilhar campos estáticos e de instância;
-- executar `new-instance`, `iget/iput`, `sget/sput`, saltos, comparações,
-  operações inteiras, arrays básicos, `invoke-*` e `move-result`;
-- ligar `KernelSUApplication` e `MainActivity` em um único processo;
-- seguir recursivamente chamadas internas do mesmo DEX quando a assinatura e
-  os opcodes já são suportados pelo runtime atual;
-- manter stubs apenas para chamadas externas ou ainda não implementadas.
+- compartilhar objetos, campos e estado;
+- ligar `KernelSUApplication` e `MainActivity` no mesmo processo;
+- seguir chamadas internas recursivamente;
+- encaminhar qualquer quantidade de registradores por `argc + args[]`;
+- executar métodos estáticos com argumentos e instâncias com múltiplos
+  parâmetros.
 
-## Integração SukiSU
+## Marco SukiSU
 
-O alvo atual é:
+O marco anterior atingiu:
 
 ```text
-SukiSU_v4.1.3_40796-release.apk
+4 métodos raiz
+23 métodos internos ligados
+54 chamadas externas
+30 métodos rejeitados
+profundidade 3
 ```
 
-Os quatro métodos raiz são:
+A ABI genérica remove a limitação anterior de apenas dois argumentos. Cada
+função ligada agora recebe:
 
-```text
-KernelSUApplication.<init>()
-KernelSUApplication.onCreate()
-MainActivity.<init>()
-MainActivity.onCreate(Bundle)
+```c
+uint32_t argc, const wd_value *args
 ```
 
-O linkador recursivo parte desses métodos, percorre as referências `invoke-*`
-e internaliza métodos compatíveis no mesmo ELF.
+Os registradores de entrada Dalvik são carregados no final do frame. O limite
+prudencial subiu de 96 para 512 code units. Métodos com `throw` explícito
+continuam fora do grafo até a implementação correta de exceções.
 
-```text
-quatro métodos raiz
-        ↓
-árvore de chamadas DEX
-        ↓
-métodos internos suportados
-        ↓
-dispatch nativo compartilhado
-        ↓
-um único ELF x86-64
-```
-
-Chamadas para `android.*`, `java.*`, JNI ou métodos rejeitados continuam no
-caminho de stub.
-
-## Gerar o ELF recursivo do SukiSU
+## Gerar o ELF recursivo
 
 ```bash
-cargo run -p winedroid-compiler --bin winedroid-sukisu-recursive -- \
-  ~/Downloads/SukiSU_v4.1.3_40796-release.apk \
-  --output /tmp/winedroid-sukisu-recursive.elf \
-  --emit-c /tmp/winedroid-sukisu-recursive.c \
-  --max-depth 3 \
-  --max-methods 32 \
-  --run
+cargo run -p winedroid-compiler --bin winedroid-sukisu-recursive --   ~/Downloads/SukiSU_v4.1.3_40796-release.apk   --output /tmp/winedroid-sukisu-generic-abi.elf   --emit-c /tmp/winedroid-sukisu-generic-abi.c   --max-depth 3   --max-methods 96   --run
 ```
 
-O relatório mostra:
-
-- métodos raiz;
-- métodos internos realmente ligados;
-- chamadas externas mantidas em stub;
-- métodos rejeitados e o motivo;
-- chamadas cortadas pelo limite de profundidade;
-- profundidade alcançada.
-
-## Pipeline
-
-```text
-APK
- ├─ AndroidManifest.xml ──→ parser AXML
- ├─ resources.arsc ───────→ resolvedor planejado
- ├─ classes*.dex
- │    ├─ índices e descritores
- │    ├─ corpos de métodos
- │    ├─ grafo de chamadas
- │    ├─ lowering Dalvik
- │    └─ C intermediário auditável
- └─ lib/<abi>/*.so ───────→ ponte Bionic/JNI planejada
-                              ↓
-                           Clang AOT
-                              ↓
-                         ELF x86-64
-                              ↓
-                     kernel Linux / CPU
-```
-
-O executável final não contém um loop interpretando opcodes. O C é um backend
-intermediário temporário.
-
-## Testar o workspace
+## Testar
 
 ```bash
 cargo fmt --all -- --check
@@ -119,40 +65,35 @@ cargo test --workspace
 cargo build --release --workspace
 ```
 
-## Limitações atuais
+## Limitações
 
-- Activity ainda não abre uma janela;
-- Jetpack Compose ainda não é renderizado;
-- objetos e strings usam semântica simplificada;
-- arrays e exceções são incompletos;
-- não há coleta de lixo;
-- `java.*` e `android.*` ainda não são reimplementados integralmente;
-- JNI e Bionic ainda não funcionam;
-- Binder, serviços Android e permissões ainda não funcionam;
-- recursos, áudio, câmera, notificações e gráficos ainda não funcionam;
+- nenhuma janela de Activity;
+- Jetpack Compose ainda não renderiza;
+- dispatch virtual ainda usa o `method_id` estático;
+- strings, arrays, coleções e exceções são incompletos;
+- JNI, Bionic, Binder e serviços Android ainda não funcionam;
 - não há tradução ARM/ARM64 para x86-64.
 
 ## Próximos marcos
 
-1. Aumentar a cobertura de opcodes que bloqueiam a árvore do SukiSU.
-2. Generalizar a ABI de chamadas para mais parâmetros e métodos estáticos.
-3. Implementar strings, arrays, coleções e exceções reais.
+1. Implementar exceções e aceitar métodos com `throw`.
+2. Cobrir os opcodes restantes.
+3. Implementar dispatch virtual por tipo real.
 4. Substituir stubs de `java.lang` e `java.util`.
-5. Criar implementações Linux de `Context`, `Application` e `Activity`.
-6. Abrir a primeira janela de Activity em Wayland.
-7. Implementar JNI x86-64 e ponte Bionic.
+5. Abrir a primeira janela Wayland.
+6. Implementar JNI x86-64 e ponte Bionic.
 
 ## Segurança
 
-APK é entrada não confiável. Não execute o WineDroid como root e não use APKs
-não confiáveis em sistemas importantes.
-
-## Filosofia
-
-O objetivo não é esconder Android dentro de uma VM. O objetivo é oferecer ao
-aplicativo as interfaces observáveis que ele espera, mapeando-as para o Linux
-como uma camada de compatibilidade.
+APK é entrada não confiável. Não execute o WineDroid como root.
 
 ## Licença
 
 Apache-2.0. Consulte [`LICENSE`](LICENSE).
+
+### Labels Dalvik sem predecessores
+
+O C intermediário preserva os labels dos blocos Dalvik. Depois do lowering,
+alguns blocos podem ficar sem predecessores e o Clang reporta
+`-Wunused-label`. O backend mantém `-Werror`, desativando exclusivamente essa
+categoria, que não altera a semântica do ELF gerado.

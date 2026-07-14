@@ -335,7 +335,15 @@ impl AotCompiler {
 
         let result = Command::new(&self.clang)
             .args([
-                "-std=c11", "-O2", "-fPIE", "-pie", "-Wall", "-Wextra", "-Werror", "-o",
+                "-std=c11",
+                "-O2",
+                "-fPIE",
+                "-pie",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-label",
+                "-o",
             ])
             .arg(output)
             .arg(&temporary)

@@ -19,10 +19,10 @@ struct Cli {
     #[arg(long)]
     emit_c: Option<PathBuf>,
 
-    #[arg(long, default_value_t = 3)]
+    #[arg(long, default_value_t = 4)]
     max_depth: usize,
 
-    #[arg(long, default_value_t = 32)]
+    #[arg(long, default_value_t = 96)]
     max_methods: usize,
 
     #[arg(long)]

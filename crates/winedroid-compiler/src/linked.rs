@@ -142,15 +142,18 @@ impl LinkedLifecycleCompiler {
             "\twd_value application = wd_new_object({application_type});\n"
         ));
         source.push_str(
-            "\t(void)wd_linked_method_0(application, 0);\n\
-             \t(void)wd_linked_method_1(application, 0);\n",
+            "\twd_value application_args[] = { application };\n\
+         \t(void)wd_linked_method_0(1, application_args);\n\
+             \t(void)wd_linked_method_1(1, application_args);\n",
         );
         source.push_str(&format!(
             "\twd_value activity = wd_new_object({activity_type});\n"
         ));
         source.push_str(
-            "\t(void)wd_linked_method_2(activity, 0);\n\
-             \t(void)wd_linked_method_3(activity, 0);\n",
+            "\twd_value activity_init_args[] = { activity };\n\
+         \twd_value activity_create_args[] = { activity, 0 };\n\
+         \t(void)wd_linked_method_2(1, activity_init_args);\n\
+             \t(void)wd_linked_method_3(2, activity_create_args);\n",
         );
         source.push_str(
             "\tfputs(\"[WineDroid] linked SukiSU lifecycle complete\\n\", stderr);\n\
@@ -200,7 +203,15 @@ impl LinkedLifecycleCompiler {
 
         let result = Command::new(&self.clang)
             .args([
-                "-std=c11", "-O2", "-fPIE", "-pie", "-Wall", "-Wextra", "-Werror", "-o",
+                "-std=c11",
+                "-O2",
+                "-fPIE",
+                "-pie",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-label",
+                "-o",
             ])
             .arg(output)
             .arg(&temporary)
@@ -297,34 +308,58 @@ fn transform_generated_method(
         })?;
     let end = start + relative_end;
 
-    let signature = format!(
-        "static wd_value wd_linked_method_{index}(wd_value wd_this, wd_value wd_arg0) {{\n\
-         \t(void)wd_this;\n\
-         \t(void)wd_arg0;\n"
-    );
+    if method.ins_size > method.registers_size {
+        return Err(BootstrapError::Apk(format!(
+            "{}: ins_size={} excede registers_size={}",
+            method.descriptor, method.ins_size, method.registers_size
+        )));
+    }
 
+    let signature = format!(
+        "static wd_value wd_linked_method_{index}(uint32_t argc, const wd_value *args) {{\n"
+    );
     let mut function = generated[start..end].replacen(GENERATED_METHOD_MARKER, &signature, 1);
 
-    if !method.is_static() && method.ins_size > 0 {
-        let register_count = usize::from(method.registers_size).max(1);
-        let incoming_start = register_count.saturating_sub(usize::from(method.ins_size));
-        let generated_this = format!("\tv[{incoming_start}] = wd_new_object(0); /* this */");
-        let mut linked_inputs = format!("\tv[{incoming_start}] = wd_this; /* linked this */");
+    let register_count = usize::from(method.registers_size).max(1);
+    let frame_declaration = format!("\twd_value v[{register_count}] = {{0}};\n");
+    let incoming_start = register_count.saturating_sub(usize::from(method.ins_size));
+    let mut incoming = String::new();
 
-        if method.ins_size > 1 {
-            linked_inputs.push_str(&format!(
-                "\n\tv[{}] = wd_arg0; /* linked argument */",
-                incoming_start + 1
+    if method.ins_size == 0 {
+        incoming.push_str("\t(void)argc;\n\t(void)args;\n");
+    } else {
+        for input in 0..usize::from(method.ins_size) {
+            incoming.push_str(&format!(
+                "\tv[{}] = (args != NULL && argc > {}) ? args[{}] : 0;\n",
+                incoming_start + input,
+                input,
+                input
             ));
         }
+    }
 
+    if !function.contains(&frame_declaration) {
+        return Err(BootstrapError::Apk(format!(
+            "{}: declaração do frame não encontrada",
+            method.descriptor
+        )));
+    }
+
+    function = function.replacen(
+        &frame_declaration,
+        &(frame_declaration.clone() + &incoming),
+        1,
+    );
+
+    if !method.is_static() && method.ins_size > 0 {
+        let generated_this = format!("\tv[{incoming_start}] = wd_new_object(0); /* this */");
         if !function.contains(&generated_this) {
             return Err(BootstrapError::Apk(format!(
                 "{}: inicialização de this não encontrada",
                 method.descriptor
             )));
         }
-        function = function.replacen(&generated_this, &linked_inputs, 1);
+        function = function.replacen(&generated_this, "", 1);
     }
 
     function = remap_bracket_indices(&function, "wd_static_fields[", local_to_global)?;
@@ -579,7 +614,7 @@ mod tests {
             source.matches("static wd_value wd_linked_method_").count(),
             4
         );
-        assert!(source.contains("linked this"));
+        assert!(source.contains("activity_create_args"));
         assert!(source.contains("linked SukiSU lifecycle complete"));
     }
 
